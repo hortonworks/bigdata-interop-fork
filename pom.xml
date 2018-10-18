@@ -103,7 +103,7 @@
     <google.api-bigquery.version>v2-rev402-${google.api.version}</google.api-bigquery.version>
     <google.api-storage.version>v1-rev136-${google.api.version}</google.api-storage.version>
     <google.auto-value.version>1.6.2</google.auto-value.version>
-    <google.findbugs.version>3.0.2</google.findbugs.version>
+    <google.findbugs.version>3.0.0</google.findbugs.version>
     <google.flogger.version>0.3.1</google.flogger.version>
     <google.guava.version>26.0-jre</google.guava.version>
     <google.truth.version>0.42</google.truth.version>
