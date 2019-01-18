@@ -43,7 +43,8 @@ public class GoogleHadoopFileSystemDelegationTokensTest {
    */
   @Test
   public void testDelegationTokenBinding() {
-    final URI initUri = (new Path("gs://" + "test/")).toUri();
+    final String bucketName = "test";
+    final URI initUri = (new Path("gs://" + bucketName + "/")).toUri();
     final Text expectedKind = TestTokenIdentifierImpl.KIND;
 
     GoogleHadoopFileSystem fs = new GoogleHadoopFileSystem();
@@ -53,7 +54,7 @@ public class GoogleHadoopFileSystemDelegationTokensTest {
       // Request a delegation token
       Token<?> dt = fs.getDelegationToken(null);
       assertNotNull("Expected a delegation token", dt);
-      assertEquals("Unexpected delegation token service", initUri.toString(), dt.getService().toString());
+      assertEquals("Unexpected delegation token service", ("gs://" + bucketName), dt.getService().toString());
       assertEquals("Unexpected delegation token kind", expectedKind, dt.getKind());
 
       // Validate the associated identifier

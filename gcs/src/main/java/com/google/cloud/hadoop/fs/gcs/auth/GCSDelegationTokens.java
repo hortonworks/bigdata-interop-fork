@@ -91,7 +91,7 @@ public class GCSDelegationTokens {
           (AbstractDelegationTokenBinding) bindingClass.newInstance();
       binding.bindToFileSystem(getUri(), fileSystem);
       tokenBinding = binding;
-      logger.atInfo().log("Filesystem %s is using delegation tokens of kind %s",
+      logger.atFine().log("Filesystem %s is using delegation tokens of kind %s",
           getUri(), tokenBinding.getKind().toString());
 
       service = binding.getService();
@@ -129,7 +129,7 @@ public class GCSDelegationTokens {
       throws IOException {
     Preconditions.checkState(!isBoundToDT(),
         "Already Bound to a delegation token");
-    logger.atInfo().log("No delegation tokens present: using direct authentication");
+    logger.atFine().log("No delegation tokens present: using direct authentication");
     accessTokenProvider = tokenBinding.deployUnbonded();
     return accessTokenProvider;
   }
@@ -215,9 +215,9 @@ public class GCSDelegationTokens {
    * @throws IOException failure.
    */
   public void bindToFileSystem(
-      final URI uri,
+      final URI service,
       final GoogleHadoopFileSystemBase fs) throws IOException {
-    this.uri = requireNonNull(uri);
+    this.uri = requireNonNull(service);
     this.fileSystem = requireNonNull(fs);
   }
 
@@ -292,7 +292,7 @@ public class GCSDelegationTokens {
    * @throws IOException failure to validate/read data encoded in identifier.
    * @throws IllegalArgumentException if the token isn't an GCP session token
    */
-  public AbstractGCPTokenIdentifier extractIdentifier(
+  public static AbstractGCPTokenIdentifier extractIdentifier(
       final Token<? extends AbstractGCPTokenIdentifier> token)
       throws IOException {
     Preconditions.checkArgument(token != null, "null token");
@@ -311,8 +311,7 @@ public class GCSDelegationTokens {
       }
     }
     if (identifier == null) {
-      throw new DelegationTokenIOException("Failed to unmarshall token for "
-          + getUri());
+      throw new DelegationTokenIOException("Failed to unmarshall token "+ token.toString());
     }
     identifier.validate();
     return identifier;

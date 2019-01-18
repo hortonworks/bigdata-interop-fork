@@ -61,20 +61,26 @@ public abstract class AbstractGCPTokenIdentifier extends DelegationTokenIdentifi
     super(kind);
   }
 
-  protected AbstractGCPTokenIdentifier(Text kind, String renewer, String realUser) {
-    this(kind, new Text(), new Text(renewer), new Text(realUser));
-  }
-
-  protected AbstractGCPTokenIdentifier(Text kind, Text owner, Text renewer, Text realUser) {
+  protected AbstractGCPTokenIdentifier(Text kind, Text owner, Text renewer, Text realUser, URI uri, String origin) {
     super(kind, owner, renewer, realUser);
-  }
-
-  protected AbstractGCPTokenIdentifier(Text kind, URI uri, Text owner, String origin) {
-    super(kind);
-    this.setOwner(owner);
     this.uri = uri;
     this.origin = origin;
   }
+
+//  protected AbstractGCPTokenIdentifier(Text kind, String renewer, String realUser) {
+//    this(kind, new Text(), new Text(renewer), new Text(realUser));
+//  }
+//
+//  protected AbstractGCPTokenIdentifier(Text kind, Text owner, Text renewer, Text realUser) {
+//    super(kind, owner, renewer, realUser);
+//  }
+//
+//  protected AbstractGCPTokenIdentifier(Text kind, URI uri, Text owner, String origin) {
+//    super(kind);
+//    this.setOwner(owner);
+//    this.uri = uri;
+//    this.origin = origin;
+//  }
 
   public URI getUri() {
     return uri;
@@ -143,13 +149,12 @@ public abstract class AbstractGCPTokenIdentifier extends DelegationTokenIdentifi
 
   @Override
   public String toString() {
-    final StringBuilder sb = new StringBuilder("GCPTokenIdentifier{");
+    final StringBuilder sb = new StringBuilder("GCPTokenIdentifier: ");
     sb.append(getKind());
     sb.append("; uri=").append(uri);
     sb.append("; timestamp=").append(created);
     sb.append("; uuid=").append(uuid);
     sb.append("; ").append(origin);
-    sb.append('}');
     return sb.toString();
   }
 
