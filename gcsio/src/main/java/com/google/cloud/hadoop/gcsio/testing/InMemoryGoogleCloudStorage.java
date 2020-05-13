@@ -14,6 +14,8 @@
 
 package com.google.cloud.hadoop.gcsio.testing;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.api.client.util.Clock;
 import com.google.cloud.hadoop.gcsio.CreateBucketOptions;
 import com.google.cloud.hadoop.gcsio.CreateObjectOptions;
@@ -30,7 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import java.io.ByteArrayOutputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -378,10 +379,9 @@ public class InMemoryGoogleCloudStorage implements GoogleCloudStorage {
       String bucketName, String objectNamePrefix, String delimiter,
       long maxResults)
       throws IOException {
-    // TODO(user): Add tests for behavior when bucket doesn't exist.
     InMemoryBucketEntry bucketEntry = bucketLookup.get(bucketName);
     if (bucketEntry == null) {
-      throw new FileNotFoundException("Bucket not found: " + bucketName);
+      return new ArrayList<>();
     }
     Set<String> uniqueNames = new HashSet<>();
     for (String objectName : bucketEntry.getObjectNames()) {
@@ -549,6 +549,9 @@ public class InMemoryGoogleCloudStorage implements GoogleCloudStorage {
       final StorageResourceId destination,
       CreateObjectOptions options)
       throws IOException {
+    checkArgument(
+        sources.size() <= MAX_COMPOSE_OBJECTS,
+        "Can not compose more than %s sources", MAX_COMPOSE_OBJECTS);
     ByteArrayOutputStream tempOutput = new ByteArrayOutputStream();
     for (StorageResourceId sourceId : sources) {
       // TODO(user): If we change to also set generationIds for source objects in the base

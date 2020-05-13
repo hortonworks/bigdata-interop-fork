@@ -16,6 +16,7 @@
 
 package com.google.cloud.hadoop.gcsio;
 
+import static com.google.cloud.hadoop.gcsio.GoogleCloudStorageImpl.createItemInfoForStorageObject;
 import static com.google.cloud.hadoop.gcsio.StorageResourceId.createReadableString;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -36,6 +37,8 @@ import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.GenerationReadConsistency;
 import com.google.cloud.hadoop.util.ApiErrorExtractor;
 import com.google.cloud.hadoop.util.ClientRequestHelper;
+import com.google.cloud.hadoop.util.ResilientOperation;
+import com.google.cloud.hadoop.util.RetryDeterminer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -84,7 +87,10 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
 
   // Current position in this channel, it could be different from contentChannelPosition if
   // position(long) method calls were made without calls to read(ByteBuffer) method.
-  @VisibleForTesting protected long currentPosition = 0;
+  // TODO(b/120887495): This @VisibleForTesting annotation was being ignored by prod code.
+  // Please check that removing it is correct, and remove this comment along with it.
+  // @VisibleForTesting
+  protected long currentPosition = 0;
 
   // Current read position in the contentChannel.
   //
@@ -94,7 +100,10 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
   // of this instance in cases where caller intends to start reading at some other offset.
   // If contentChannelPosition is not the same as currentPosition, it indicates that a target
   // position has been set but the actual seek operation is still pending.
-  @VisibleForTesting protected long contentChannelPosition = -1;
+  // TODO(b/120887495): This @VisibleForTesting annotation was being ignored by prod code.
+  // Please check that removing it is correct, and remove this comment along with it.
+  // @VisibleForTesting
+  protected long contentChannelPosition = -1;
 
   // Size of the object being read.
   private long size = -1;
@@ -149,7 +158,7 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
 
   private Long generation = null;
 
-  private boolean metadataInitialized = false;
+  @VisibleForTesting protected boolean metadataInitialized = false;
 
   /**
    * Constructs an instance of GoogleCloudStorageReadChannel.
@@ -207,8 +216,7 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
     // Initialize metadata if available.
     GoogleCloudStorageItemInfo info = getInitialMetadata();
     if (info != null) {
-      String generationString = String.valueOf(info.getContentGeneration());
-      initMetadata(info.getContentEncoding(), info.getSize(), generationString);
+      initMetadata(info);
     }
   }
 
@@ -221,7 +229,9 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
    *     Could not be null.
    * @throws IOException on IO error
    */
-  @VisibleForTesting
+  // TODO(b/120887495): This @VisibleForTesting annotation was being ignored by prod code.
+  // Please check that removing it is correct, and remove this comment along with it.
+  // @VisibleForTesting
   protected GoogleCloudStorageReadChannel(@Nonnull GoogleCloudStorageReadOptions readOptions)
       throws IOException {
     this(
@@ -276,13 +286,33 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
   }
 
   /**
-   * Returns {@link GoogleCloudStorageItemInfo} used to initialize metadata in constructor. By
-   * default returns {@code null} which means that metadata will be lazily initialized during first
-   * read.
+   * Returns {@link GoogleCloudStorageItemInfo} used to initialize metadata in constructor or {@code
+   * null} if {@link GoogleCloudStorageReadOptions#getFastFailOnNotFound()} is set to {@code false}.
    */
   @Nullable
-  protected GoogleCloudStorageItemInfo getInitialMetadata() {
-    return null;
+  protected GoogleCloudStorageItemInfo getInitialMetadata() throws IOException {
+    return readOptions.getFastFailOnNotFound() ? fetchInitialMetadata() : null;
+  }
+
+  /** Returns {@link GoogleCloudStorageItemInfo} used to initialize metadata in constructor. */
+  private GoogleCloudStorageItemInfo fetchInitialMetadata() throws IOException {
+    StorageObject object;
+    try {
+      object =
+          ResilientOperation.retry(
+              ResilientOperation.getGoogleRequestCallable(createRequest()),
+              readBackOff.get(),
+              RetryDeterminer.SOCKET_ERRORS,
+              IOException.class,
+              sleeper);
+    } catch (IOException e) {
+      throw errorExtractor.itemNotFound(e)
+          ? GoogleCloudStorageExceptions.getFileNotFoundException(bucketName, objectName)
+          : new IOException("Error reading " + resourceIdString, e);
+    } catch (InterruptedException e) { // From the sleep
+      throw new IOException("Thread interrupt received.", e);
+    }
+    return createItemInfoForStorageObject(new StorageResourceId(bucketName, objectName), object);
   }
 
   /**
@@ -386,64 +416,64 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
         // each time we make progress we reset the retry counter.
         retriesAttempted = 0;
       } catch (IOException ioe) {
+        logger.atFine().log(
+            "Closing contentChannel after %s exception for '%s'.",
+            ioe.getMessage(), resourceIdString);
+        closeContentChannel();
+
+        if (buffer.remaining() != remainingBeforeRead) {
+          int partialRead = remainingBeforeRead - buffer.remaining();
+          logger.atInfo().log(
+              "Despite exception, had partial read of %s bytes from '%s'; resetting retry count.",
+              partialRead, resourceIdString);
+          retriesAttempted = 0;
+          totalBytesRead += partialRead;
+          currentPosition += partialRead;
+        }
+
         // TODO(user): Refactor any reusable logic for retries into a separate RetryHelper class.
         if (retriesAttempted == maxRetries) {
           logger.atSevere().log(
               "Throwing exception after reaching max read retries (%s) for '%s'.",
               maxRetries, resourceIdString);
-          closeContentChannel();
           throw ioe;
-        } else {
-          if (retriesAttempted == 0) {
-            // If this is the first of a series of retries, we also want to reset the readBackOff
-            // to have fresh initial values.
-            readBackOff.get().reset();
-          }
+        }
 
-          ++retriesAttempted;
-          logger.atWarning().withCause(ioe).log(
-              "Failed read retry #%s/%s for '%s'. Sleeping...",
-              retriesAttempted, maxRetries, resourceIdString);
-          try {
-            boolean backOffSuccessful = BackOffUtils.next(sleeper, readBackOff.get());
-            if (!backOffSuccessful) {
-              logger.atSevere().log(
-                  "BackOff returned false; maximum total elapsed time exhausted."
-                      + " Giving up after %s/%s retries for '%s'",
-                  retriesAttempted, maxRetries, resourceIdString);
-              closeContentChannel();
-              throw ioe;
-            }
-          } catch (InterruptedException ie) {
+        if (retriesAttempted == 0) {
+          // If this is the first of a series of retries, we also want to reset the readBackOff
+          // to have fresh initial values.
+          readBackOff.get().reset();
+        }
+
+        ++retriesAttempted;
+        logger.atWarning().withCause(ioe).log(
+            "Failed read retry #%s/%s for '%s'. Sleeping...",
+            retriesAttempted, maxRetries, resourceIdString);
+        try {
+          boolean backOffSuccessful = BackOffUtils.next(sleeper, readBackOff.get());
+          if (!backOffSuccessful) {
             logger.atSevere().log(
-                "Interrupted while sleeping before retry. Giving up after %s/%s retries for '%s'",
+                "BackOff returned false; maximum total elapsed time exhausted."
+                    + " Giving up after %s/%s retries for '%s'",
                 retriesAttempted, maxRetries, resourceIdString);
-            ioe.addSuppressed(ie);
-            closeContentChannel();
             throw ioe;
           }
-          logger.atInfo().log(
-              "Done sleeping before retry #%s/%s for '%s'",
+        } catch (InterruptedException ie) {
+          logger.atSevere().log(
+              "Interrupted while sleeping before retry. Giving up after %s/%s retries for '%s'",
               retriesAttempted, maxRetries, resourceIdString);
-
-          if (buffer.remaining() != remainingBeforeRead) {
-            int partialRead = remainingBeforeRead - buffer.remaining();
-            logger.atInfo().log(
-                "Despite exception, had partial read of %s bytes from '%s'; resetting retry count.",
-                partialRead, resourceIdString);
-            retriesAttempted = 0;
-            totalBytesRead += partialRead;
-            currentPosition += partialRead;
-          }
-
-          // Close the contentChannel.
-          closeContentChannel();
+          ioe.addSuppressed(ie);
+          throw ioe;
         }
+
+        logger.atInfo().log(
+            "Done sleeping before retry #%s/%s for '%s'",
+            retriesAttempted, maxRetries, resourceIdString);
       } catch (RuntimeException r) {
         closeContentChannel();
         throw r;
       }
-    } while (buffer.remaining() > 0);
+    } while (buffer.remaining() > 0 && currentPosition < size);
 
     // If this method was called when the stream was already at EOF
     // (indicated by totalBytesRead == 0) then return EOF else,
@@ -645,11 +675,16 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
   @Override
   public long size() throws IOException {
     throwIfNotOpen();
+    if (!metadataInitialized) {
+      initMetadata(fetchInitialMetadata());
+    }
     return size;
   }
 
   /** Sets size of this channel to the given value. */
-  @VisibleForTesting
+  // TODO(b/120887495): This @VisibleForTesting annotation was being ignored by prod code.
+  // Please check that removing it is correct, and remove this comment along with it.
+  // @VisibleForTesting
   protected void setSize(long size) {
     this.size = size;
   }
@@ -737,6 +772,12 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
         contentChannelPosition == currentPosition,
         "contentChannelPosition (%s) should be equal to currentPosition (%s) for '%s'",
         contentChannelPosition, currentPosition, resourceIdString);
+  }
+
+  /* Initializes metadata (size, encoding, etc) from {@link GoogleCloudStorageItemInfo} */
+  private void initMetadata(GoogleCloudStorageItemInfo info) throws IOException {
+    String generationString = String.valueOf(info.getContentGeneration());
+    initMetadata(info.getContentEncoding(), info.getSize(), generationString);
   }
 
   /** Initializes metadata (size, encoding, etc) from HTTP {@code headers}. */
@@ -935,6 +976,27 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
       response = handleExecuteMediaException(e, getObject, shouldRetryWithLiveVersion());
     }
 
+    if (!metadataInitialized) {
+      initMetadata(response.getHeaders());
+      checkState(
+          metadataInitialized, "metadata should be initialized already for '%s'", resourceIdString);
+      if (size == 0) {
+        resetContentChannel();
+        return new ByteArrayInputStream(new byte[0]);
+      }
+      if (gzipEncoded) {
+        // Initialize `contentChannelEnd` to `size` (initialized to Long.MAX_VALUE in `initMetadata`
+        // method for gzipped objetcs) because value of HTTP Content-Length header is usually
+        // smaller than decompressed object size.
+        if (currentPosition == 0) {
+          contentChannelEnd = size;
+        } else {
+          resetContentChannel();
+          return openStream(bytesToRead);
+        }
+      }
+    }
+
     if (contentChannelEnd < 0) {
       String contentRange = response.getHeaders().getContentRange();
       if (contentRange != null) {
@@ -947,19 +1009,6 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
       }
     }
 
-    if (!metadataInitialized) {
-      initMetadata(response.getHeaders());
-      checkState(
-          metadataInitialized, "metadata should be initialized already for '%s'", resourceIdString);
-      if (size == 0) {
-        resetContentChannel();
-        return new ByteArrayInputStream(new byte[0]);
-      }
-      if (gzipEncoded && currentPosition != 0) {
-        resetContentChannel();
-        return openStream(bytesToRead);
-      }
-    }
     checkState(
         contentChannelEnd > 0,
         "contentChannelEnd should be initialized already for '%s'", resourceIdString);
@@ -1012,20 +1061,35 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
         bufferSize =
             Math.toIntExact(Math.min(bufferSize, contentChannelEnd - contentChannelPosition));
         logger.atFine().log(
-            "Opened stream from %s position with %s range, %s bytesToRead"
-                + " and %s bytes buffer for '%s'",
+            "Opened stream from %d position with %s range, %d bytesToRead"
+                + " and %d bytes buffer for '%s'",
             currentPosition, rangeHeader, bytesToRead, bufferSize, resourceIdString);
         contentStream = new BufferedInputStream(contentStream, bufferSize);
       } else {
         logger.atFine().log(
-            "Opened stream from %s position with %s range and %s bytesToRead for '%s'",
+            "Opened stream from %d position with %s range and %d bytesToRead for '%s'",
             currentPosition, rangeHeader, bytesToRead, resourceIdString);
       }
 
       if (contentChannelPosition < currentPosition) {
-        contentStream.skip(currentPosition - contentChannelPosition);
-        contentChannelPosition = currentPosition;
+        long bytesToSkip = currentPosition - contentChannelPosition;
+        logger.atFine().log(
+            "Skipping %d bytes from %d position to %d position for '%s'",
+            bytesToSkip, contentChannelPosition, currentPosition, resourceIdString);
+        while (bytesToSkip > 0) {
+          long skippedBytes = contentStream.skip(bytesToSkip);
+          logger.atFine().log(
+              "Skipped %d bytes from %d position for '%s'",
+              skippedBytes, contentChannelPosition, resourceIdString);
+          bytesToSkip -= skippedBytes;
+          contentChannelPosition += skippedBytes;
+        }
       }
+
+      checkState(
+          contentChannelPosition == currentPosition,
+          "contentChannelPosition (%s) should be equal to currentPosition (%s) for '%s'",
+          contentChannelPosition, currentPosition, resourceIdString);
 
       return contentStream;
     } catch (IOException e) {

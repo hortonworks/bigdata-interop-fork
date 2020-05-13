@@ -55,7 +55,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.rules.ExternalResource;
@@ -75,7 +74,7 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
   // hack to make tests pass until JUnit 4.13 regression will be fixed:
   // https://github.com/junit-team/junit4/issues/1509
   // TODO: refactor or delete this hack
-  protected static class NotInheritableExternalResource extends ExternalResource {
+  public static class NotInheritableExternalResource extends ExternalResource {
     private final Class<?> testClass;
 
     public NotInheritableExternalResource(Class<?> testClass) {
@@ -312,17 +311,11 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
     // Get list of actual paths.
     URI path = gcsiHelper.getPath(bucketName, objectNamePrefix);
     List<FileInfo> fileInfos;
-
-    try {
+    if (pathExpectedToExist) {
       fileInfos = gcsfs.listFileInfo(path, false);
-      if (!pathExpectedToExist) {
-        Assert.fail("Expected FileNotFoundException for path: " + path);
-      }
-    } catch (FileNotFoundException e) {
+    } else {
+      assertThrows(FileNotFoundException.class, () -> gcsfs.listFileInfo(path, false));
       fileInfos = new ArrayList<>();
-      if (pathExpectedToExist) {
-        Assert.fail("Did not expect FileNotFoundException for path: " + path);
-      }
     }
 
     List<URI> actualPaths = new ArrayList<>();
@@ -536,7 +529,7 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
     // At non-existent path.
     validateListNamesAndInfo(tempTestBucket, dirDoesNotExist, false);
     validateListNamesAndInfo(tempTestBucket, objDoesNotExist, false);
-    validateListNamesAndInfo(objDoesNotExist, objDoesNotExist, false);
+    validateListNamesAndInfo("gcsio-test-bucket-" + objDoesNotExist, objDoesNotExist, false);
 
     // -------------------------------------------------------
     // Tests for listObjectNames().
@@ -828,8 +821,7 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
    * param to mkdir. The create should fail.
    */
   @Test
-  public void testMkdirAndCreateFileOfSameName()
-      throws IOException, URISyntaxException {
+  public void testMkdirAndCreateFileOfSameName() throws Exception {
     String bucketName = sharedBucketName1;
     String uniqueDirName = "dir-" + UUID.randomUUID();
     gcsiHelper.mkdir(
@@ -838,12 +830,11 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
         assertThrows(
             IOException.class,
             () -> gcsiHelper.writeTextFile(bucketName, uniqueDirName, "hello world"));
-    assertWithMessage(
-            String.format(
-                "unexpected exception: %s\n%s",
-                ioe.getMessage(), Throwables.getStackTraceAsString(ioe)))
-        .that(ioe.getMessage().matches(".*(A directory with that name exists|Is a directory).*"))
-        .isTrue();
+    assertWithMessage("unexpected exception:%n%s", Throwables.getStackTraceAsString(ioe))
+        .that(ioe)
+        .hasMessageThat()
+        .matches(".*(A directory with that name exists|Is a directory|already exists).*");
+
     gcsiHelper.delete(bucketName, uniqueDirName);
   }
 
@@ -939,34 +930,29 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
         boolean result = gcsiHelper.mkdirs(path);
         if (result) {
           assertWithMessage(
-                  String.format(
-                      "Unexpected result for path: %s : expected %s, actually returned true.",
-                      path, expectedOutcome.toString()))
+                  "Unexpected result for path: %s : expected %s, actually returned true.",
+                  path, expectedOutcome)
               .that(expectedOutcome.getType())
               .isEqualTo(MethodOutcome.Type.RETURNS_TRUE);
 
           // Assert that all of the sub-dirs have been created.
           List<URI> subDirPaths = getSubDirPaths(path);
           for (URI subDirPath : subDirPaths) {
-            assertWithMessage(
-                    String.format(
-                        "Sub-path %s of path %s not found or not a dir", subDirPath, path))
+            assertWithMessage("Sub-path %s of path %s not found or not a dir", subDirPath, path)
                 .that(gcsiHelper.exists(subDirPath) && gcsiHelper.isDirectory(subDirPath))
                 .isTrue();
           }
         } else {
           assertWithMessage(
-                  String.format(
-                      "Unexpected result for path: %s : expected %s, actually returned false.",
-                      path, expectedOutcome.toString()))
+                  "Unexpected result for path: %s : expected %s, actually returned false.",
+                  path, expectedOutcome)
               .that(expectedOutcome.getType())
               .isEqualTo(MethodOutcome.Type.RETURNS_FALSE);
         }
       } catch (Exception e) {
         assertWithMessage(
-                String.format(
-                    "Unexpected result for path: %s : expected %s, actually threw exception %s.",
-                    path, expectedOutcome.toString(), Throwables.getStackTraceAsString(e)))
+                "Unexpected result for path: %s : expected %s, actually threw exception %s.",
+                path, expectedOutcome, Throwables.getStackTraceAsString(e))
             .that(expectedOutcome.getType())
             .isEqualTo(MethodOutcome.Type.THROWS_EXCEPTION);
       }

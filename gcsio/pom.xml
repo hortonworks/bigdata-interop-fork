@@ -22,7 +22,7 @@
   <parent>
     <groupId>com.google.cloud.bigdataoss</groupId>
     <artifactId>bigdataoss-parent</artifactId>
-    <version>1.9.10</version>
+    <version>1.9.17</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -32,7 +32,7 @@
   </description>
 
   <artifactId>gcsio</artifactId>
-  <version>1.9.10</version>
+  <version>1.9.17</version>
 
   <profiles>
     <profile>
@@ -46,7 +46,7 @@
                 <exclude>none</exclude>
               </excludes>
               <includes>
-                <include>**/*IntegrationTest.java</include>
+                <include>**/*Integration*Test.java</include>
                 <include>**/GoogleCloudStorageImplTest.java</include>
               </includes>
             </configuration>
@@ -117,7 +117,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <excludes>
-            <exclude>**/*IntegrationTest.java</exclude>
+            <exclude>**/*Integration*Test.java</exclude>
             <exclude>**/GoogleCloudStorageImplTest.java</exclude>
           </excludes>
         </configuration>

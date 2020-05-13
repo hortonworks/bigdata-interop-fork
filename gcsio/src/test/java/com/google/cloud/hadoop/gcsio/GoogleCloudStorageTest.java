@@ -1609,41 +1609,40 @@ public class GoogleCloudStorageTest {
     InputStream firstTimeoutStream = mock(InputStream.class);
     InputStream secondTimeoutStream = mock(InputStream.class);
     when(firstTimeoutStream.read(any(byte[].class), eq(0), eq(testData.length)))
-        .thenAnswer(new Answer<Integer>() {
-          @Override
-          public Integer answer(InvocationOnMock invocation) {
-            Object[] args = invocation.getArguments();
-            byte[] inputBuf = (byte[]) args[0];
-            // Read < size bytes
-            System.arraycopy(testData, 0, inputBuf, 0, compressedLength / 2);
-            return compressedLength / 2;
-          }
-        });
-    when(
-        firstTimeoutStream.read(
+        .thenAnswer(
+            invocation -> {
+              Object[] args = invocation.getArguments();
+              byte[] inputBuf = (byte[]) args[0];
+              // Read < size bytes
+              System.arraycopy(testData, 0, inputBuf, 0, compressedLength / 2);
+              return compressedLength / 2;
+            });
+    when(firstTimeoutStream.read(
             any(byte[].class), eq(0), eq(testData.length - compressedLength / 2)))
         .thenThrow(new SocketTimeoutException("fake timeout 1"));
 
     when(secondTimeoutStream.read(
             any(byte[].class), eq(0), eq(testData.length - compressedLength / 2)))
-        .thenAnswer(new Answer<Integer>() {
-          @Override
-          public Integer answer(InvocationOnMock invocation) {
-            Object[] args = invocation.getArguments();
-            byte[] inputBuf = (byte[]) args[0];
-            // Read > size bytes
-            System.arraycopy(testData, compressedLength / 2, inputBuf, 0, compressedLength / 2);
-            return compressedLength / 2;
-          }
-        });
+        .thenAnswer(
+            invocation -> {
+              Object[] args = invocation.getArguments();
+              byte[] inputBuf = (byte[]) args[0];
+              // Read > size bytes
+              System.arraycopy(testData, compressedLength / 2, inputBuf, 0, compressedLength / 2);
+              return compressedLength / 2;
+            });
     when(secondTimeoutStream.read(any(byte[].class), eq(0), eq(testData.length - compressedLength)))
         .thenThrow(new SocketTimeoutException("fake timeout 2"));
+
     when(firstTimeoutStream.available())
         .thenReturn(testData.length)
         .thenReturn(testData.length - compressedLength / 2);
+    when(firstTimeoutStream.skip(anyLong())).thenReturn((long) compressedLength / 2);
+
     when(secondTimeoutStream.available())
         .thenReturn(testData.length - compressedLength / 2)
         .thenReturn(testData.length - compressedLength);
+    when(secondTimeoutStream.skip(anyLong())).thenReturn((long) compressedLength / 2);
 
     Map<String, Object> responseHeaders =
         ImmutableMap.of("Content-Length", testData.length, "Content-Encoding", "gzip");
@@ -1999,15 +1998,8 @@ public class GoogleCloudStorageTest {
         .thenReturn(false);
 
     // First time is the notFoundException.
-    try {
-      gcs.deleteBuckets(Lists.newArrayList(BUCKET_NAME));
-      fail("Expected FileNotFoundException");
-    } catch (FileNotFoundException e) {
-      // Expected.
-    } catch (Exception e) {
-      // Make the test output a little more friendly in case the exception class differs.
-      fail("Expected FileNotFoundException, got " + e.getClass().getName());
-    }
+    assertThrows(
+        FileNotFoundException.class, () -> gcs.deleteBuckets(Lists.newArrayList(BUCKET_NAME)));
 
     // Second time is the unexpectedException.
     assertThrows(IOException.class, () -> gcs.deleteBuckets(Lists.newArrayList(BUCKET_NAME)));
@@ -2497,10 +2489,10 @@ public class GoogleCloudStorageTest {
     when(mockStorageBuckets.get(eq(dstBucketName))).thenReturn(mockStorageBucketsGet2);
     IOException notFoundException = new IOException("Fake not-found exception");
     IOException unexpectedException = new IOException("Other API exception");
-    IOException wrappedUnexpectedException1 = GoogleCloudStorageExceptions.wrapException(
-        unexpectedException, "Error accessing", BUCKET_NAME, null);
-    IOException wrappedUnexpectedException2 = GoogleCloudStorageExceptions.wrapException(
-        unexpectedException, "Error accessing", dstBucketName, null);
+    IOException wrappedUnexpectedException1 =
+        new IOException("Error accessing Bucket " + BUCKET_NAME, unexpectedException);
+    IOException wrappedUnexpectedException2 =
+        new IOException("Error accessing Bucket " + dstBucketName, unexpectedException);
     Bucket returnedBucket = new Bucket()
         .setName(BUCKET_NAME)
         .setTimeCreated(new DateTime(1111L))
@@ -2766,12 +2758,9 @@ public class GoogleCloudStorageTest {
     verify(mockStorageObjectsList, times(2)).execute();
   }
 
-  /**
-   * Test GoogleCloudStorage.listObjectNames(3) with maxResults set.
-   */
+  /** Test GoogleCloudStorage.listObjectNames(3) with maxResults set. */
   @Test
-  public void testListObjectNamesPrefixLimited()
-      throws IOException {
+  public void testListObjectNamesPrefixLimited() throws IOException {
     String objectPrefix = "foo/bar/baz/";
     String delimiter = "/";
     long maxResults = 3;
@@ -2780,17 +2769,18 @@ public class GoogleCloudStorageTest {
         .thenReturn(mockStorageObjectsList);
     when(mockStorageObjectsList.getPrefix()).thenReturn(objectPrefix);
     when(mockStorageObjectsList.execute())
-        .thenReturn(new Objects()
-            .setPrefixes(ImmutableList.of(
-                "foo/bar/baz/dir0/",
-                "foo/bar/baz/dir1/"))
-            .setNextPageToken("token0"))
-        .thenReturn(new Objects()
-            .setItems(ImmutableList.of(
-                new StorageObject().setName("foo/bar/baz/"),
-                new StorageObject().setName("foo/bar/baz/obj0"),
-                new StorageObject().setName("foo/bar/baz/obj1")))
-            .setNextPageToken(null));
+        .thenReturn(
+            new Objects()
+                .setPrefixes(ImmutableList.of("foo/bar/baz/dir0/", "foo/bar/baz/dir1/"))
+                .setItems(
+                    ImmutableList.of(
+                        new StorageObject().setName("foo/bar/baz/"),
+                        new StorageObject().setName("foo/bar/baz/obj0")))
+                .setNextPageToken("token0"))
+        .thenReturn(
+            new Objects()
+                .setItems(ImmutableList.of(new StorageObject().setName("foo/bar/baz/obj1")))
+                .setNextPageToken(null));
 
     List<String> objectNames =
         gcs.listObjectNames(BUCKET_NAME, objectPrefix, delimiter, maxResults);
@@ -2804,9 +2794,8 @@ public class GoogleCloudStorageTest {
     verify(mockStorageObjectsList).setDelimiter(eq(delimiter));
     verify(mockStorageObjectsList).setIncludeTrailingDelimiter(eq(Boolean.FALSE));
     verify(mockStorageObjectsList).setPrefix(eq(objectPrefix));
-    verify(mockStorageObjectsList).setPageToken("token0");
     verify(mockStorageObjectsList).getPrefix();
-    verify(mockStorageObjectsList, times(2)).execute();
+    verify(mockStorageObjectsList).execute();
   }
 
   /**
@@ -2814,8 +2803,7 @@ public class GoogleCloudStorageTest {
    * GoogleCloudStorage.listObjectNames(3).
    */
   @Test
-  public void testListObjectNamesPrefixApiException()
-      throws IOException {
+  public void testListObjectNamesPrefixApiException() throws IOException {
     String objectPrefix = "foo/bar/baz/";
     String delimiter = "/";
     when(mockStorage.objects()).thenReturn(mockStorageObjects);
@@ -2825,6 +2813,7 @@ public class GoogleCloudStorageTest {
     IOException notFoundException = new IOException("Fake not-found exception");
     IOException unexpectedException = new IOException("Other API exception");
     when(mockStorageObjectsList.getPrefix()).thenReturn(objectPrefix);
+    when(mockStorageObjectsList.getBucket()).thenReturn(BUCKET_NAME);
     when(mockStorageObjectsList.execute())
         .thenThrow(notFoundException)
         .thenThrow(unexpectedException);
@@ -2834,8 +2823,7 @@ public class GoogleCloudStorageTest {
         .thenReturn(false);
 
     // First time should just return empty list.
-    List<String> objectNames =
-        gcs.listObjectNames(BUCKET_NAME, objectPrefix, delimiter);
+    List<String> objectNames = gcs.listObjectNames(BUCKET_NAME, objectPrefix, delimiter);
     assertThat(objectNames).isEmpty();
 
     // Second time throws.
@@ -2849,8 +2837,8 @@ public class GoogleCloudStorageTest {
     verify(mockStorageObjectsList, times(2)).setDelimiter(eq(delimiter));
     verify(mockStorageObjectsList, times(2)).setIncludeTrailingDelimiter(eq(Boolean.FALSE));
     verify(mockStorageObjectsList, times(2)).setPrefix(eq(objectPrefix));
-    verify(mockStorageObjectsList).getBucket();
-    verify(mockStorageObjectsList).getPrefix();
+    verify(mockStorageObjectsList, times(2)).getBucket();
+    verify(mockStorageObjectsList, times(2)).getPrefix();
     verify(mockStorageObjectsList, times(2)).execute();
     verify(mockErrorExtractor, times(2)).itemNotFound(any(IOException.class));
   }
@@ -4172,7 +4160,7 @@ public class GoogleCloudStorageTest {
     verify(mockErrorExtractor, times(2)).itemNotFound(eq(notFoundException));
     verify(mockStorageObjects, times(3)).get(eq(BUCKET_NAME), eq(OBJECT_NAME));
     verify(mockStorageObjectsGet, times(3)).execute();
-    verify(mockSleeper, times(2)).sleep(any(Long.class));
+    verify(mockSleeper, times(2)).sleep(anyLong());
   }
 
   @Test

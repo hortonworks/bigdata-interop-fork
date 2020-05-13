@@ -1,9 +1,87 @@
+1.9.17 - 2019-05-15
+
+  1. Add a property to parallelize GCS requests in `getFileStatus` and
+     `listStatus` methods to reduce latency:
+
+       fs.gs.status.parallel.enable (default: false)
+
+     Setting this property to `true` will cause GCS connector to send more GCS
+     requests which will decrease latency but also increase cost of
+     `getFileStatus` and `listStatus` method calls.
+
+
+1.9.16 - 2019-02-25
+
+  1. Fix bug when GCS connector lists all files in directory instead of
+     specified limit.
+
+  2. Eagerly initialize `GoogleCloudStorageReadChannel` metadata if
+     `fs.gs.inputstream.fast.fail.on.not.found.enable` set to true.
+
+
+1.9.15 - 2019-02-21
+
+  1. Do not convert path to directory path for inferred implicit directories.
+
+  2. Do not parallelize GCS list requests, because it leads to too high QPS.
+
+
+1.9.14 - 2019-02-13
+
+  1. Implement Hadoop File System `concat` method using GCS compose API.
+
+  2. Add Hadoop File System extended attributes support.
+
+
+1.9.13 - 2019-02-04
+
+  1. Fix implicit directories inference.
+
+
+1.9.12 - 2019-01-30
+
+  1. Update all dependencies to latest versions.
+
+  2. Improve GCS IO exception messages.
+
+  3. Reduce latency of GCS IO operations.
+
+  4. Fix bug that could lead to data duplication when reading files with GZIP
+     content encoding (HTTP header `Content-Encoding: gzip`) that have
+     uncompressed size of more than 2.14 GiB.
+
+
+1.9.11 - 2018-12-20
+
+  1. Changed the default value of `fs.gs.path.encoding` to 'uri-path', the new
+     codec introduced in 1.4.5. The old behavior can be restored by setting
+     `fs.gs.path.encoding` to 'legacy'.
+
+  2. Update all dependencies to latest versions.
+
+  3. Don't use `fs.gs.performance.cache.dir.metadata.prefetch.limit` property to
+     prefetch metadata in `PerformanceCachingGoogleCloudStorage` - always use
+     single objects list request, because prefetching metadata with multiple
+     list requests (when directory contains a lot of files) could introduce
+     performance penalties when using performance cache.
+
+  4. Add an option to lazily initialize `GoogleHadoopFileSystem` instances:
+
+       fs.gs.lazy.init.enable (default: false)
+
+  5. Add ability to unset `fs.gs.system.bucket` with an empty string value:
+
+       fs.gs.system.bucket=
+
+  6. Set default value for "fs.gs.working.dir" property to "/".
+
+
 1.9.10 - 2018-11-01
 
   1. Use Hadoop `CredentialProvider` API to retrieve proxy credentials.
 
-  2. Remove 1024 compose components limit from `SYNCABLE_COMPOSITE` output stream
-     type.
+  2. Remove 1024 compose components limit from `SYNCABLE_COMPOSITE` output
+     stream type.
 
 
 1.9.9 - 2018-10-19

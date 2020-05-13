@@ -16,7 +16,7 @@
 
 package com.google.cloud.hadoop.fs.gcs;
 
-import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.PATH_CODEC_USE_LEGACY_ENCODING;
+import static com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.PATH_CODEC_USE_URI_ENCODING;
 import static com.google.common.base.Strings.nullToEmpty;
 
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.GcsFileChecksumType;
@@ -33,7 +33,6 @@ import com.google.cloud.hadoop.util.HadoopCredentialConfiguration;
 import com.google.cloud.hadoop.util.HttpTransportFactory.HttpTransportType;
 import com.google.cloud.hadoop.util.RequesterPaysOptions;
 import com.google.cloud.hadoop.util.RequesterPaysOptions.RequesterPaysMode;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.flogger.GoogleLogger;
 import java.util.Collection;
@@ -148,7 +147,7 @@ public class GoogleHadoopFileSystemConfiguration {
 
   /** Configuration key for initial working directory of a GHFS instance. Default value: '/' */
   public static final GoogleHadoopFileSystemConfigurationProperty<String> GCS_WORKING_DIRECTORY =
-      new GoogleHadoopFileSystemConfigurationProperty<>("fs.gs.working.dir");
+      new GoogleHadoopFileSystemConfigurationProperty<>("fs.gs.working.dir", "/");
 
   /**
    * If true, recursive delete on a path that refers to a GCS bucket itself ('/' for any
@@ -225,11 +224,20 @@ public class GoogleHadoopFileSystemConfiguration {
               PerformanceCachingGoogleCloudStorageOptions.LIST_CACHING_ENABLED);
 
   /** Configuration key for number of prefetched directory objects metadata in performance cache. */
+  @Deprecated
   public static final GoogleHadoopFileSystemConfigurationProperty<Long>
       GCS_PERFORMANCE_CACHE_DIR_METADATA_PREFETCH_LIMIT =
           new GoogleHadoopFileSystemConfigurationProperty<>(
               "fs.gs.performance.cache.dir.metadata.prefetch.limit",
               PerformanceCachingGoogleCloudStorageOptions.DIR_METADATA_PREFETCH_LIMIT_DEFAULT);
+
+  /**
+   * If true, executes GCS requests in {@code listStatus} and {@code getFileStatus} methods in
+   * parallel to reduce latency.
+   */
+  public static final GoogleHadoopFileSystemConfigurationProperty<Boolean>
+      GCS_STATUS_PARALLEL_ENABLE =
+          new GoogleHadoopFileSystemConfigurationProperty<>("fs.gs.status.parallel.enable", false);
 
   /**
    * Configuration key for whether or not we should update timestamps for parent directories when we
@@ -263,10 +271,15 @@ public class GoogleHadoopFileSystemConfiguration {
                   "${" + MR_JOB_HISTORY_INTERMEDIATE_DONE_DIR_KEY + "}",
                   "${" + MR_JOB_HISTORY_DONE_DIR_KEY + "}"));
 
+  /** Configuration key for enabling lazy initialization of GCS FS instance. */
+  public static final GoogleHadoopFileSystemConfigurationProperty<Boolean>
+      GCS_LAZY_INITIALIZATION_ENABLE =
+          new GoogleHadoopFileSystemConfigurationProperty<>("fs.gs.lazy.init.enable", false);
+
   /**
    * Configuration key for enabling automatic repair of implicit directories whenever detected
    * inside listStatus and globStatus calls, or other methods which may indirectly call listStatus
-   * and/or globaStatus.
+   * and/or globStatus.
    */
   public static final GoogleHadoopFileSystemConfigurationProperty<Boolean>
       GCS_REPAIR_IMPLICIT_DIRECTORIES_ENABLE =
@@ -276,7 +289,7 @@ public class GoogleHadoopFileSystemConfiguration {
   /** Configuration key for changing the path codec from legacy to 'uri path encoding'. */
   public static final GoogleHadoopFileSystemConfigurationProperty<String> PATH_CODEC =
       new GoogleHadoopFileSystemConfigurationProperty<>(
-          "fs.gs.path.encoding", PATH_CODEC_USE_LEGACY_ENCODING);
+          "fs.gs.path.encoding", PATH_CODEC_USE_URI_ENCODING);
 
   /**
    * Configuration key for enabling automatic inference of implicit directories. If set, we create
@@ -437,8 +450,7 @@ public class GoogleHadoopFileSystemConfiguration {
    *
    * <p>SYNCABLE_COMPOSITE: Stream behaves similarly to BASIC when used with basic
    * create/write/close patterns, but supports hsync() by creating discrete temporary GCS objects
-   * which are composed onto the destination object. Has a hard upper limit of number of components
-   * which can be composed onto the destination object.
+   * which are composed onto the destination object.
    */
   public static final GoogleHadoopFileSystemConfigurationProperty<OutputStreamType>
       GCS_OUTPUT_STREAM_TYPE =
@@ -523,7 +535,9 @@ public class GoogleHadoopFileSystemConfiguration {
   public static final GoogleHadoopFileSystemConfigurationProperty<String> GCS_CONFIG_OVERRIDE_FILE =
       new GoogleHadoopFileSystemConfigurationProperty<>("fs.gs.config.override.file", null);
 
-  @VisibleForTesting
+  // TODO(b/120887495): This @VisibleForTesting annotation was being ignored by prod code.
+  // Please check that removing it is correct, and remove this comment along with it.
+  // @VisibleForTesting
   static GoogleCloudStorageFileSystemOptions.Builder getGcsFsOptionsBuilder(Configuration config) {
     GoogleCloudStorageFileSystemOptions.Builder gcsFsOptionsBuilder =
         GoogleCloudStorageFileSystemOptions.newBuilder()
@@ -533,7 +547,8 @@ public class GoogleHadoopFileSystemConfiguration {
             .setMarkerFilePattern(GCS_MARKER_FILE_PATTERN.get(config, config::get))
             .setIsPerformanceCacheEnabled(
                 GCS_PERFORMANCE_CACHE_ENABLE.get(config, config::getBoolean))
-            .setImmutablePerformanceCachingOptions(getPerformanceCachingOptions(config));
+            .setImmutablePerformanceCachingOptions(getPerformanceCachingOptions(config))
+            .setStatusParallelEnabled(GCS_STATUS_PARALLEL_ENABLE.get(config, config::getBoolean));
 
     String projectId = GCS_PROJECT_ID.get(config, config::get);
     gcsFsOptionsBuilder
@@ -576,8 +591,6 @@ public class GoogleHadoopFileSystemConfiguration {
             GCS_PERFORMANCE_CACHE_MAX_ENTRY_AGE_MILLIS.get(config, config::getLong))
         .setListCachingEnabled(
             GCS_PERFORMANCE_CACHE_LIST_CACHING_ENABLE.get(config, config::getBoolean))
-        .setDirMetadataPrefetchLimit(
-            GCS_PERFORMANCE_CACHE_DIR_METADATA_PREFETCH_LIMIT.get(config, config::getLong))
         .build();
   }
 

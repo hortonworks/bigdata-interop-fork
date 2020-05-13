@@ -14,6 +14,8 @@
 
 package com.google.cloud.hadoop.gcsio;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -81,8 +83,7 @@ public abstract class GoogleCloudStorageIntegrationHelper {
   protected int writeTextFile(String bucketName, String objectName, String text)
       throws IOException {
     byte[] textBytes = text.getBytes(UTF_8);
-    ByteBuffer writeBuffer = ByteBuffer.wrap(textBytes);
-    return writeFile(bucketName, objectName, writeBuffer, 1);
+    return writeFile(bucketName, objectName, textBytes, 1);
   }
 
   /**
@@ -101,12 +102,11 @@ public abstract class GoogleCloudStorageIntegrationHelper {
   protected int writeTextFileOverwriting(String bucketName, String objectName, String text)
       throws IOException {
     byte[] textBytes = text.getBytes(UTF_8);
-    ByteBuffer writeBuffer = ByteBuffer.wrap(textBytes);
-    return writeFileOverwriting(bucketName, objectName, writeBuffer, 1);
+    return writeFileOverwriting(bucketName, objectName, textBytes, 1);
   }
 
   /**
-   * Wrtes a file with the given buffer repeated numWrites times
+   * Writes a file with the given buffer repeated numWrites times
    *
    * @param bucketName name of the bucket to create object in
    * @param objectName name of the object to create
@@ -116,22 +116,17 @@ public abstract class GoogleCloudStorageIntegrationHelper {
    * @return number of bytes written
    */
   protected int writeFile(
-      String bucketName,
-      String objectName,
-      ByteBuffer buffer,
-      int numWrites,
-      boolean overwriteExisting)
+      String bucketName, String objectName, byte[] buffer, int numWrites, boolean overwriteExisting)
       throws IOException {
     int totalBytesWritten = 0;
 
     try (WritableByteChannel writeChannel =
         create(bucketName, objectName, new CreateFileOptions(overwriteExisting))) {
       for (int i = 0; i < numWrites; i++) {
-        buffer.clear();
-        int numBytesWritten = writeChannel.write(buffer);
+        int numBytesWritten = writeChannel.write(ByteBuffer.wrap(buffer));
         assertWithMessage("could not write the entire buffer")
             .that(numBytesWritten)
-            .isEqualTo(buffer.capacity());
+            .isEqualTo(buffer.length);
         totalBytesWritten += numBytesWritten;
       }
     }
@@ -149,9 +144,9 @@ public abstract class GoogleCloudStorageIntegrationHelper {
    * @param numWrites number of times to repeat the data
    * @return number of bytes written
    */
-  protected int writeFile(String bucketName, String objectName, ByteBuffer buffer, int numWrites)
+  protected int writeFile(String bucketName, String objectName, byte[] buffer, int numWrites)
       throws IOException {
-    return writeFile(bucketName, objectName, buffer, numWrites, false);
+    return writeFile(bucketName, objectName, buffer, numWrites, /* overwriteExisting= */ false);
   }
 
   /**
@@ -165,8 +160,8 @@ public abstract class GoogleCloudStorageIntegrationHelper {
    * @return number of bytes written
    */
   protected int writeFileOverwriting(
-      String bucketName, String objectName, ByteBuffer buffer, int numWrites) throws IOException {
-    return writeFile(bucketName, objectName, buffer, numWrites, true);
+      String bucketName, String objectName, byte[] buffer, int numWrites) throws IOException {
+    return writeFile(bucketName, objectName, buffer, numWrites, /* overwriteExisting= */ true);
   }
 
   /**
@@ -291,7 +286,7 @@ public abstract class GoogleCloudStorageIntegrationHelper {
    * denote "don't care" or "don't know".
    *
    * <p>This function assumes a certain behavior when we create test objects. See {@link
-   * createObjects()} for details.
+   * #createObjects(String, String[])} for details.
    */
   public long getExpectedObjectSize(String objectName, boolean expectedToExist)
       throws UnsupportedEncodingException {
@@ -348,6 +343,10 @@ public abstract class GoogleCloudStorageIntegrationHelper {
    * foo => returns: ()
    */
   private List<String> getSubdirs(String objectName) {
+    checkArgument(
+        isNullOrEmpty(objectName) || objectName.charAt(0) != '/',
+        "objectName can not start from '/': %s",
+        objectName);
     List<String> subdirs = new ArrayList<>();
     // Create a list of all subdirs.
     // for example,

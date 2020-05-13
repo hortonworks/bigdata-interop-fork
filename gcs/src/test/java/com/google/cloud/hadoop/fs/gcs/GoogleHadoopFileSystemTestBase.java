@@ -28,6 +28,7 @@ import com.google.cloud.hadoop.testing.TestingAccessTokenProvider;
 import com.google.cloud.hadoop.util.HadoopVersionInfo;
 import com.google.common.base.Joiner;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.Writer;
 import java.net.URI;
@@ -139,6 +140,13 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
   public abstract void testConfigureBucketsSuccess()
       throws URISyntaxException, IOException;
 
+  @Test
+  public abstract void testConfigureBucketsWithRootBucketButNoSystemBucket() throws IOException;
+
+  @Test
+  public abstract void testConfigureBucketsWithNeitherRootBucketNorSystemBucket()
+      throws IOException;
+
   // -----------------------------------------------------------------------------------------
   // Tests that aren't supported by all configurations of GHFS.
   // -----------------------------------------------------------------------------------------
@@ -148,19 +156,16 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     // hsync() is not supported in the default setup.
   }
 
-  /**
-   * Tests getGcsPath().
-   */
+  /** Tests getGcsPath(). */
   @Test
-  public void testGetGcsPath()
-      throws URISyntaxException {
+  public void testGetGcsPath() throws URISyntaxException {
     GoogleHadoopFileSystemBase myghfs = (GoogleHadoopFileSystemBase) ghfs;
-    URI gcsPath = new URI("gs://" + myghfs.getSystemBucketName() + "/dir/obj");
-    URI convertedPath = myghfs.getGcsPath(new Path(gcsPath));
-    assertThat(gcsPath).isEqualTo(convertedPath);
 
-    assertThrows(
-        IllegalArgumentException.class, () -> myghfs.getGcsPath(new Path("/buck^et", "object")));
+    URI gcsPath = new URI("gs://" + myghfs.getSystemBucketName() + "/dir/obj");
+    assertThat(myghfs.getGcsPath(new Path(gcsPath))).isEqualTo(gcsPath);
+
+    assertThat(myghfs.getGcsPath(new Path("/buck^et", "object")))
+        .isEqualTo(new URI("gs://" + myghfs.getSystemBucketName() + "/buck%5Eet/object"));
   }
 
   /**
@@ -209,77 +214,51 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     URI leafUri = myghfs.getGcsPath(leafPath);
     gcsfs.mkdir(leafUri);
 
-    boolean inferImplicitDirectories = gcsfs.getOptions()
-        .getCloudStorageOptions().isInferImplicitDirectoriesEnabled();
+    boolean inferredDirExists =
+        gcsfs.getOptions().getCloudStorageOptions().isInferImplicitDirectoriesEnabled();
+    boolean inferredOrRepairedDirExists =
+        gcsfs.getOptions().getCloudStorageOptions().isInferImplicitDirectoriesEnabled()
+            || gcsfs.getOptions().getCloudStorageOptions().isAutoRepairImplicitDirectoriesEnabled();
 
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-      assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredDirExists);
+
+    if (inferredOrRepairedDirExists) {
+      myghfs.listStatus(parentPath);
     } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-      assertWithMessage("Expected to !exist: %s", parentUri)
-          .that(gcsfs.exists(parentUri))
-          .isFalse();
+      assertThrows(FileNotFoundException.class, () -> myghfs.listStatus(parentPath));
     }
 
-    myghfs.listStatus(parentPath);
-
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-    assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredOrRepairedDirExists);
+    assertDirectory(gcsfs, parentUri, inferredOrRepairedDirExists);
 
     ghfsHelper.clearBucket(bucketName);
 
     // Reset for globStatus.
     gcsfs.mkdir(leafUri);
 
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-      assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
-    } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-      assertWithMessage("Expected to !exist: %s", parentUri)
-          .that(gcsfs.exists(parentUri))
-          .isFalse();
-    }
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredDirExists);
 
     myghfs.globStatus(parentPath);
 
     // Globbing the single directory only repairs that top-level directory; it is *not* the same
     // as listStatus.
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-    } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-    }
-    assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredOrRepairedDirExists);
 
     ghfsHelper.clearBucket(bucketName);
 
     // Reset for globStatus(path/*)
     gcsfs.mkdir(leafUri);
 
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-      assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
-    } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-      assertWithMessage("Expected to !exist: %s", parentUri)
-          .that(gcsfs.exists(parentUri))
-          .isFalse();
-    }
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredDirExists);
 
     // When globbing children, the parent will only be repaired if flat-globbing is not enabled.
     Path globChildrenPath = new Path(parentPath.toString() + "/*");
@@ -289,14 +268,13 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
 
     // This will internally call listStatus, so will have the same behavior of repairing both
     // levels of subdirectories.
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
 
     HadoopVersionInfo versionInfo = HadoopVersionInfo.getInstance();
-
     if (versionInfo.isLessThan(2, 0) || versionInfo.isGreaterThan(2, 3)) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
+      assertDirectory(gcsfs, subdirUri, inferredOrRepairedDirExists);
 
-      if (expectParentRepair || inferImplicitDirectories) {
+      if (expectParentRepair || inferredDirExists) {
         assertWithMessage("Expected to exist: %s", parentUri)
             .that(gcsfs.exists(parentUri))
             .isTrue();
@@ -312,18 +290,9 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     // Reset for globStatus(path*)
     gcsfs.mkdir(leafUri);
 
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-      assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
-    } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-      assertWithMessage("Expected to !exist: %s", parentUri)
-          .that(gcsfs.exists(parentUri))
-          .isFalse();
-    }
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredDirExists);
 
     // Globbing with a wildcard in the parentUri itself also only repairs one level, but for
     // a different reason than globbing with no wildcard. Globbing with no wildcard requires
@@ -331,18 +300,21 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     // when listing parentOf(parentUri).
     myghfs.globStatus(new Path(parentPath.toString() + "*"));
 
-    assertWithMessage("Expected to exist: %s", leafUri).that(gcsfs.exists(leafUri)).isTrue();
-    if (inferImplicitDirectories) {
-      assertWithMessage("Expected to exist: %s", subdirUri).that(gcsfs.exists(subdirUri)).isTrue();
-    } else {
-      assertWithMessage("Expected to !exist: %s", subdirUri)
-          .that(gcsfs.exists(subdirUri))
-          .isFalse();
-    }
-    if (versionInfo.isLessThan(2, 0) || versionInfo.isGreaterThan(2, 3)) {
-      assertWithMessage("Expected to exist: %s", parentUri).that(gcsfs.exists(parentUri)).isTrue();
-    }
+    assertDirectory(gcsfs, leafUri, /* exists= */ true);
+    assertDirectory(gcsfs, subdirUri, inferredDirExists);
+    assertDirectory(gcsfs, parentUri, inferredOrRepairedDirExists);
+
     ghfsHelper.clearBucket(bucketName);
+  }
+
+  private static void assertDirectory(GoogleCloudStorageFileSystem gcsfs, URI path, boolean exists)
+      throws IOException {
+    assertWithMessage("Expected to %s: %s", exists ? "exist" : "not exist", path)
+        .that(gcsfs.exists(path))
+        .isEqualTo(exists);
+    assertWithMessage("Expected to be a directory: %s", path)
+        .that(gcsfs.getFileInfo(path).isDirectory())
+        .isTrue();
   }
 
   /** Validates makeQualified() when working directory is not root. */
@@ -494,7 +466,7 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     Path tempFilePath = ghfsHelper.castAsHadoopPath(tempFileUri);
     Path tempDirPath = tempFilePath.getParent();
     String text = "Hello World!";
-    ghfsHelper.writeFile(tempFilePath, text, 1, false);
+    ghfsHelper.writeFile(tempFilePath, text, 1, /* overwrite= */ false);
 
     // Another temporary file in GHFS.
     URI tempFileUri2 = GoogleCloudStorageFileSystemIntegrationTest.getTempFilePath();
@@ -696,9 +668,17 @@ public abstract class GoogleHadoopFileSystemTestBase extends HadoopFileSystemTes
     config.set("fs.gs.auth.access.token.provider.impl", TestingAccessTokenProvider.class.getName());
     URI gsUri = new URI("gs://foobar/");
 
-    IOException thrown =
-        assertThrows(
-            IOException.class, () -> new GoogleHadoopFileSystem().initialize(gsUri, config));
+    GoogleHadoopFileSystem ghfs = new GoogleHadoopFileSystem();
+
+    IOException thrown;
+    if (GoogleHadoopFileSystemConfiguration.GCS_LAZY_INITIALIZATION_ENABLE.get(
+        config, config::getBoolean)) {
+      ghfs.initialize(gsUri, config);
+      thrown = (IOException) assertThrows(RuntimeException.class, ghfs::getGcsFs).getCause();
+    } else {
+      thrown = assertThrows(IOException.class, () -> ghfs.initialize(gsUri, config));
+    }
+
     assertThat(thrown).hasCauseThat().hasMessageThat().contains("Invalid Credentials");
   }
 }

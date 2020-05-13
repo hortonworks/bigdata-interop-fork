@@ -1,3 +1,50 @@
+0.13.17 - 2019-05-15
+
+  1. POM updates for GCS connector 1.9.17.
+
+  2. Support nested record type in field schema in BigQuery connector.
+
+  3. Add a property to specify BigQuery tables partitioning definition:
+
+       mapred.bq.output.table.partitioning
+
+
+0.13.16 - 2019-02-25
+
+  1. POM updates for GCS connector 1.9.16.
+
+
+0.13.15 - 2019-02-21
+
+  1. POM updates for GCS connector 1.9.15.
+
+
+0.13.14 - 2019-02-13
+
+  1. POM updates for GCS connector 1.9.14.
+
+
+0.13.13 - 2019-02-04
+
+  1. POM updates for GCS connector 1.9.13.
+
+
+0.13.12 - 2019-01-30
+
+  1. POM updates for GCS connector 1.9.12.
+
+  2. Improve exception message for BigQuery job execution errors.
+
+  3. Update all dependencies to latest versions.
+
+
+0.13.11 - 2018-12-20
+
+  1. POM updates for GCS connector 1.9.11.
+
+  2. Update all dependencies to latest versions.
+
+
 0.13.10 - 2018-11-01
 
   1. POM updates for GCS connector 1.9.10.
