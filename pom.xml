@@ -109,7 +109,7 @@
     <hadoop.one.version>1.2.1</hadoop.one.version>
     <hadoop.two.version>2.9.1</hadoop.two.version>
     <hadoop.three.version>3.1.1</hadoop.three.version>
-    <junit.version>4.13-SNAPSHOT</junit.version>
+    <junit.version>4.13</junit.version>
     <mockito.version>2.23.0</mockito.version>
   </properties>
 
@@ -351,8 +351,7 @@
         <groupId>junit</groupId>
         <artifactId>junit</artifactId>
         <version>${junit.version}</version>
-        <!-- Needed for main compile and test, but not for execution -->
-        <scope>provided</scope>
+        <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
