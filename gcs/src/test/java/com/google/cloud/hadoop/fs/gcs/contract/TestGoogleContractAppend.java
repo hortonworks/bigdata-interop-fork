@@ -53,4 +53,9 @@ public class TestGoogleContractAppend extends AbstractContractAppendTest {
   public void testRenameFileBeingAppended() throws Throwable {
     ContractTestUtils.skip("blobstores can not rename file that being appended");
   }
+
+  public void testFileSystemDeclaresCapability() throws Throwable {
+    ContractTestUtils.skip("FileSystem capability not implemented in GCS.");
+  }
+
 }
