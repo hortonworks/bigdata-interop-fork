@@ -21,13 +21,13 @@ import com.google.auto.value.AutoValue;
 public abstract class AsyncWriteChannelOptions {
 
   /** Default upload buffer size. */
-  public static final int BUFFER_SIZE_DEFAULT = 8 * 1024 * 1024;
+  public static final int BUFFER_SIZE_DEFAULT = 512 * 1024;
 
   /** Default pipe buffer size. */
   public static final int PIPE_BUFFER_SIZE_DEFAULT = 1024 * 1024;
 
   /** Default upload chunk size. */
-  public static final int UPLOAD_CHUNK_SIZE_DEFAULT = 64 * 1024 * 1024;
+  public static final int UPLOAD_CHUNK_SIZE_DEFAULT = 1024 * 1024;
 
   /** Default upload cache size. */
   public static final int UPLOAD_CACHE_SIZE_DEFAULT = 0;
