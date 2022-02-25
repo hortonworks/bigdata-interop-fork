@@ -27,7 +27,7 @@ public abstract class AsyncWriteChannelOptions {
   public static final int PIPE_BUFFER_SIZE_DEFAULT = 1024 * 1024;
 
   /** Default upload chunk size. */
-  public static final int UPLOAD_CHUNK_SIZE_DEFAULT = 1024 * 1024;
+  public static final int UPLOAD_CHUNK_SIZE_DEFAULT = 512 * 1024;
 
   /** Default upload cache size. */
   public static final int UPLOAD_CACHE_SIZE_DEFAULT = 0;
