@@ -271,7 +271,8 @@ public class GoogleHadoopFileSystemConfiguration {
 
   /** Configuration key for setting write buffer size. */
   public static final HadoopConfigurationProperty<Integer> GCS_OUTPUT_STREAM_BUFFER_SIZE =
-      new HadoopConfigurationProperty<>("fs.gs.outputstream.buffer.size", 8 * 1024 * 1024);
+      new HadoopConfigurationProperty<>("fs.gs.outputstream.buffer.size",
+          512 * 1024);
 
   /** Configuration key for setting pipe buffer size. */
   public static final HadoopConfigurationProperty<Integer> GCS_OUTPUT_STREAM_PIPE_BUFFER_SIZE =
@@ -282,7 +283,8 @@ public class GoogleHadoopFileSystemConfiguration {
   // it to a known good value.
   public static final HadoopConfigurationProperty<Integer> GCS_OUTPUT_STREAM_UPLOAD_CHUNK_SIZE =
       new HadoopConfigurationProperty<>(
-          "fs.gs.outputstream.upload.chunk.size", 64 * 1024 * 1024, "fs.gs.io.buffersize.write");
+          "fs.gs.outputstream.upload.chunk.size", 512 * 1024, "fs.gs.io"
+          + ".buffersize.write");
 
   /** Configuration for setting GCS upload cache size. */
   public static final HadoopConfigurationProperty<Integer> GCS_OUTPUT_STREAM_UPLOAD_CACHE_SIZE =
