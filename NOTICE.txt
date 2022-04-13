@@ -1,15 +1,18 @@
-gcs
-Copyright 2013-2020 Google Inc. All Rights Reserved.
+GCS
+Copyright 2013 Google Inc. All Rights Reserved.
 
 
-Components:
+Components: 
 
-gcs-connector.jar hadoop2-2.1.2 : Apache License 2.0
+bigquery-connector.jar hadoop2-1.2.0 : Apache License 2.0
+gcs-connector.jar 2.1.2.7.2.12.0-291 : Apache License 2.0
+GoogleCloudPlatform/bigdata-interop v2.1.2 : Apache License 2.0
+util-hadoop hadoop3-2.1.2 : Apache License 2.0
 
-Licenses:
+Licenses: 
 
 Apache License 2.0
-(gcs-connector.jar hadoop2-2.1.2)
+(bigquery-connector.jar hadoop2-1.2.0, gcs-connector.jar 2.1.2.7.2.12.0-291, GoogleCloudPlatform/bigdata-interop v2.1.2, util-hadoop hadoop3-2.1.2)
 
 Apache License
 Version 2.0, January 2004
@@ -192,3 +195,4 @@ third-party archives.
   distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
   KIND, either express or implied. See the License for the specific language
   governing permissions and limitations under the License.
+
